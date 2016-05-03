@@ -52,33 +52,75 @@ def read_index_file(index_file, base_dir=None):
     os.chdir(pwd)
 
 
+    grids = []
     images = []
 
     with open(index_file) as f:
         for line in f:
-            if line[0] == os.path.sep:
-                line = line[1:]
             line = line.rstrip()
+            parts = [x.rstrip() for x in line.split(',')]
 
-            path = os.path.join('static/imgs', line)
-            parts = os.path.split(path)
-            text = os.path.join(os.path.split(parts[0])[1], parts[1])
-            images.append(dict(
-                href=path,
-                text=text
-            ))
+            paths = []
+            text = None
 
-    return images
+            if not base_dir:
+                abs_path = parts[0]
+            else:
+                abs_path = os.path.join(base_dir, parts[0])
+
+            if os.path.isdir(abs_path):
+                for fname in os.listdir(abs_path):
+                    if os.path.splitext(fname)[1].lower() in ['.jpg', '.jpeg']:
+                        paths.append(os.path.join(parts[0], fname))
+                paths.append('sep')
+            else:
+                paths.append(parts[0])
+
+            if len(parts) > 1:
+                text = parts[1]
+
+            for path in paths:
+                if path != 'sep':
+                    if path[0] == os.path.sep:
+                        web_path = path[1:]
+                    else:
+                        web_path = path
+
+                    web_path = os.path.join('static/imgs', web_path)
+
+                    if text is None:
+                        fparts = os.path.split(web_path)
+                        text_path = os.path.join(os.path.split(fparts[0])[1], fparts[1])
+                    else:
+                        text_path = text.replace('<fname>', os.path.split(web_path)[1])
+
+                    images.append(dict(
+                        href=web_path,
+                        text=text_path
+                    ))
+                else:
+                    grids.append(images)
+                    images = []
+                    # images.append(dict(
+                    #     href='static/assets/sep.png',
+                    #     text=''
+                    # ))
+
+    if len(images) > 0:
+        grids.append(images)
+    return grids
 
 ##
 
 @app.route('/')
 def grid():
 
-    images = read_index_file(app.config['args'].input_index, base_dir=app.config['args'].base_dir)
-    print images
+    grids = read_index_file(app.config['args'].input_index, base_dir=app.config['args'].base_dir)
+    from pprint import pprint
+    pprint(grids)
+    print len(grids[0])
     template = env.get_template('grid.html')
-    return template.render(images=images,
+    return template.render(grids=grids,
                            row_height=app.config['args'].row_height)
 
 if __name__ == '__main__':

@@ -4,24 +4,34 @@
     <meta charset="UTF-8">
     <title>Image Grid</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/justifiedGallery/3.6.1/css/justifiedGallery.min.css">
+    <style type="text/css">
+        .gallery {
+            padding-bottom: 2em;
+        }
+    </style>
 </head>
 <body>
 
-<div id="mygallery" >
-    {% for image in images %}
+{% for grid in grids %}
+{{loop.index}}
+<div id="mygallery-{{loop.index}}">
+    {% for image in grid %}
     <a href="{{ image.href }}">
         <img alt="{{ image.text }}" src="{{ image.href }}"/>
     </a>
     {% endfor %}
     <!-- other images... -->
 </div>
+{% endfor %}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0-beta1/jquery.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/justifiedGallery/3.6.1/js/jquery.justifiedGallery.min.js"></script>
 <script type="text/javascript">
-    $("#mygallery").justifiedGallery({
+    {% for grid in grids %}
+    $('#mygallery-{{loop.index}}').addClass('gallery').justifiedGallery({
         rowHeight: {{ row_height }}
     });
+    {% endfor %}
 </script>
 
 </body>
