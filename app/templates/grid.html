@@ -13,7 +13,7 @@
 <body>
 
 {% for grid in grids %}
-{{loop.index}}
+{{loop.index}} : {{ grid[0].text }}
 <div id="mygallery-{{loop.index}}">
     {% for image in grid %}
     <a href="{{ image.href }}">

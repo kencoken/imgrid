@@ -32,7 +32,7 @@ def get_args(parser):
         '--srv_port',
         help='Port on which to launch webserver',
         type=int,
-        default=-8500
+        default=8500
     )
 
     return parser.parse_args()
@@ -130,4 +130,4 @@ if __name__ == '__main__':
 
     app.run(processes=1,
             host=socket.gethostbyname(socket.gethostname()),
-            port=8500)
+            port=args.srv_port)
