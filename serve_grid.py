@@ -34,6 +34,12 @@ def get_args(parser):
         type=int,
         default=8500
     )
+    parser.add_argument(
+        '--split_by_subdir',
+        help='Split rows by subdir',
+        type=bool,
+        default=False
+    )
 
     return parser.parse_args()
 
@@ -55,6 +61,8 @@ def read_index_file(index_file, base_dir=None):
     grids = []
     images = []
 
+    last_subdir = None
+
     with open(index_file) as f:
         for line in f:
             line = line.rstrip()
@@ -70,11 +78,19 @@ def read_index_file(index_file, base_dir=None):
 
             if os.path.isdir(abs_path):
                 for fname in os.listdir(abs_path):
-                    if os.path.splitext(fname)[1].lower() in ['.jpg', '.jpeg']:
+                    if os.path.splitext(fname)[1].lower() in ['.jpg', '.jpeg', '.png']:
                         paths.append(os.path.join(parts[0], fname))
                 paths.append('sep')
             else:
-                paths.append(parts[0])
+                if not app.config['args'].split_by_subdir:
+                    paths.append(parts[0])
+                else:
+                    this_subdir = os.path.split(parts[0])[0]
+                    if this_subdir != last_subdir:
+                        if last_subdir is not None:
+                            paths.append('sep')
+                        last_subdir = this_subdir
+                    paths.append(parts[0])
 
             if len(parts) > 1:
                 text = parts[1]
