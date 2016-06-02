@@ -60,6 +60,20 @@ def get_args(parser):
     )
     return parser.parse_args()
 
+def filter_claims(claims, filter_function):
+    filtered_claims = []
+    for claim in claims:
+        if filter_function(claim):
+            filtered_claims.append(claim)
+    return filtered_claims
+
+def remove_repairs(claim):
+    print claim
+    if claim['meta_label'] == 'Repair':
+        return False
+    else:
+        return True
+
 def get_sorted_images(images):
     part_scores = []
     for item in images:
@@ -130,7 +144,9 @@ def read_index_file(index_file, base_dir=None):
     images = []
 
     last_subdir = None
-    meta_label = None
+    prev_meta_label = None
+    prev_layman_label = None
+    prev_pooled_prob = None
 
     with open(index_file) as f:
         for line in f:
@@ -141,9 +157,14 @@ def read_index_file(index_file, base_dir=None):
 
             if 'CLAIM_INFO' in line:
                 meta_label = parts[2]
-                layman_label = parts[3]
-                pooled_prob = parts[4]
+                layman_label =  parts[3]
+                pooled_prob =  parts[4]
+                if prev_meta_label is None:
+                    prev_meta_label = meta_label
+                    prev_layman_label = layman_label
+                    prev_pooled_prob =  pooled_prob
                 continue
+
 
             text = None
 
@@ -208,11 +229,15 @@ def read_index_file(index_file, base_dir=None):
 
                     grids.append(dict(images=images, claim_id=claim_id))
                     if meta_label is not None:
-                        text_string = 'Metadata: {0}'.format(meta_label)
-                        text_string += ', Layman: {0}'.format(layman_label)
-                        text_string += ', Claim Pooled Prob: %.3f' % float(pooled_prob)
-                        grids[-1]['pooled_prob'] = pooled_prob
+                        text_string = 'Metadata: {0}'.format(prev_meta_label)
+                        text_string += ', Layman: {0}'.format(prev_layman_label)
+                        text_string += ', Claim Pooled Prob: %.3f' % float(prev_pooled_prob)
+                        grids[-1]['pooled_prob'] = prev_pooled_prob
+                        grids[-1]['meta_label'] = prev_meta_label
                         grids[-1]['claim_info_text'] = text_string
+                        prev_meta_label = meta_label
+                        prev_layman_label = layman_label
+                        prev_pooled_prob =  pooled_prob
 
                     images = []
 
@@ -220,13 +245,18 @@ def read_index_file(index_file, base_dir=None):
         if app.config['args'].use_probs:
             images = get_sorted_images(images)
 
-        grids.append(dict(images=images))
+        grids.append(dict(images=images, claim_id=claim_id))
         if meta_label is not None and app.config['args'].split_by_subdir:
-            text_string = 'Metadata: {0}'.format(meta_label)
-            text_string += ', Layman: {0}'.format(layman_label)
-            text_string += ', Claim Pooled Prob: %.3f' % float(pooled_prob)
-            grids[-1]['pooled_prob'] = pooled_prob
+            text_string = 'Metadata: {0}'.format(prev_meta_label)
+            text_string += ', Layman: {0}'.format(prev_layman_label)
+            text_string += ', Claim Pooled Prob: %.3f' % float(prev_pooled_prob)
+            grids[-1]['pooled_prob'] = prev_pooled_prob
+            grids[-1]['meta_label'] = prev_meta_label
             grids[-1]['claim_info_text'] = text_string
+            prev_meta_label = meta_label
+            prev_layman_label = layman_label
+            prev_pooled_prob =  pooled_prob
+
 
     if len(grids) > 1:
         if 'pooled_prob' in grids[-1]:
@@ -249,8 +279,10 @@ def grid(page_num):
         page_size = int(app.config['args'].page_size/20.0)
     else:
         page_size = app.config['args'].page_size
+
     page_count = int(math.ceil(float(len(grids)) / float(page_size)))
-    claims_current = grids[page_id*page_size:(page_id+1)*page_size]
+    grids = filter_claims(grids, remove_repairs)
+    claims_current = grids[page_id*page_size: (page_id+1)*page_size]
 
     #create_thumbnails
     app.logger.info('Create the thumbs for %d claims...' % len(claims_current))
