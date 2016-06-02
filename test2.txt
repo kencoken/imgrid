@@ -1,2 +1,2 @@
-/disk1/data/ad6813/Laird/188.39.141.202:5690/12/12-288672
-/disk1/data/ad6813/Laird/188.39.141.202:5690/12/12-288666
+/disk2/data//Laird/data/12/12-288672
+/disk2/data//Laird/data/12/12-288666

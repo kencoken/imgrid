@@ -13,11 +13,11 @@
 <body>
 
 {% for grid in grids %}
-{{loop.index}} : {{ grid[0].text }}
+{{loop.index}} : {{ grid.claim_id }}, {{ grid.claim_info_text }}
 <div id="mygallery-{{loop.index}}">
-    {% for image in grid %}
+    {% for image in grid.images %}
     <a href="{{ image.href }}">
-        <img alt="{{ image.text }}" src="{{ image.href }}"/>
+        <img alt="{{ image.text }}" src="{{ image.href_thumb }}"/>
     </a>
     {% endfor %}
     <!-- other images... -->
