@@ -29,11 +29,13 @@ def get_args(parser):
     parser.add_argument(
         '--row_height',
         help='The preferred height of rows in pixels',
+        type=int,
         default=120
     )
     parser.add_argument(
         '--page_size',
         help='number of images per page',
+        type=int,
         default=200
     )
     parser.add_argument(
