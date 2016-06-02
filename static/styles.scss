@@ -1,0 +1,37 @@
+$enable-flex: true;
+@import "../node_modules/bootstrap/scss/bootstrap.scss";
+
+.nav-item {
+  padding-top: 0.4em;
+}
+
+.container-fluid {
+  padding: 2em;
+}
+
+.imgrid-row {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+h4 {
+  padding-left: 0.3em;
+}
+
+.thumb {
+  padding: 0.1em;
+  a {
+    text-decoration: inherit;
+    color: inherit;
+  }
+  figure {
+    /*box-shadow: 0 0.125rem 0.313rem rgba( 0, 0, 0, .2 );*/
+    border: 2px solid #e7f3f5;
+    figcaption {
+      padding: 0.3em;
+    }
+  }
+  img {
+    width: 100%;
+  }
+}
