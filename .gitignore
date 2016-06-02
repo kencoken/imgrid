@@ -1,3 +1,8 @@
+.DS_Store
 *.pyc
+/.sass-cache
+/.gulp-scss-cache
+/node_modules
 /static/imgs
+/static/thumbs
 /.idea/
