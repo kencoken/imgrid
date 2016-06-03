@@ -1,12 +1,12 @@
+import sys
 from flask import Flask,  redirect, url_for
 from jinja2 import Environment, PackageLoader
 import argparse
 import os
 import numpy as np
 import socket
-from skimage.io import imsave, imread
-from skimage.transform import resize
-
+from PIL import Image
+import math
 
 app = Flask(__name__)
 app.config.from_object(__name__)
@@ -30,7 +30,7 @@ def get_args(parser):
         '--row_height',
         help='The preferred height of rows in pixels',
         type=int,
-        default=120
+        default=300
     )
     parser.add_argument(
         '--page_size',
@@ -66,7 +66,6 @@ def filter_claims(claims, filter_function):
     return filtered_claims
 
 def remove_repairs(claim):
-    print claim
     if claim['meta_label'] == 'Repair':
         return False
     else:
@@ -81,8 +80,6 @@ def get_sorted_images(images):
     new_images = []
     for i in order:
         tmp = images[i]
-        tmp['text']+=',\n part_score: {},\n rr_score: {}'.format(tmp['part_score'], 
-                                                                  tmp['rr_score'])
         new_images.append(tmp)
 
     return new_images
@@ -98,22 +95,22 @@ def get_sorted_grid(grid):
     return new_grid
 
 def impath_to_thumbpath(path):
-    im_name = path.replace('/','_')
-    thumb_path = 'static/thumbs/'+im_name[:-4]+'_thumbnail_{}.jpg'.format(app.config['args'].row_height)
+    im_name = path.replace('/', '_')
+    thumb_path = 'static/thumbs/%s_thumbnail_%d.jpg' % (os.path.splitext(im_name)[0], app.config['args'].row_height)
     return thumb_path
 
 def create_thumbnails(paths):
-    # keep multiple of desired resolution due to crappy resize
-    multiple = 2
+
     if not os.path.exists('static/thumbs'):
         os.mkdir('static/thumbs')
     for path in paths:
         thumb_path = impath_to_thumbpath(path)
-        if not os.path.exists(thumb_path):
-            img = imread(path)
-            aspect_ratio= img.shape[1]*1.0/img.shape[0]
-            resized_img = resize(img, (multiple*app.config['args'].row_height, multiple*int(aspect_ratio*app.config['args'].row_height)))
-            imsave(thumb_path, resized_img)
+        if not os.path.lexists(thumb_path):
+            im = Image.open(path)
+            aspect_ratio = im.size[0]*1.0/im.size[1]
+            size = [app.config['args'].row_height, int(aspect_ratio*app.config['args'].row_height)]
+            im.thumbnail(size, Image.ANTIALIAS)
+            im.save(thumb_path)
 
 def read_index_file(index_file, base_dir=None):
 
@@ -154,7 +151,6 @@ def read_index_file(index_file, base_dir=None):
                     prev_pooled_prob =  pooled_prob
                 continue
 
-
             text = None
 
             if not base_dir:
@@ -182,9 +178,6 @@ def read_index_file(index_file, base_dir=None):
                     part_score = parts[1]
                     rr_score = parts[2]
 
-            # if len(parts) > 1:
-                # text = parts[1]
-
             for path in paths:
                 if path != 'sep':
                     if path[0] == os.path.sep:
@@ -206,7 +199,8 @@ def read_index_file(index_file, base_dir=None):
                             href_thumb=impath_to_thumbpath(web_path),
                             text=text_path
                         ))
-                    if not  app.config['args'].split_by_subdir:
+
+                    if not app.config['args'].split_by_subdir:
                         if len(images) > app.config['args'].page_size:
                             grids.append(dict(images=images))
 
@@ -231,10 +225,6 @@ def read_index_file(index_file, base_dir=None):
                         prev_pooled_prob =  pooled_prob
 
                     images = []
-                        # images.append(dict(
-                        #     href='static/assets/sep.png',
-                        #     text=''
-                        # ))
 
     if len(images) > 0:
         if app.config['args'].use_probs:
@@ -253,15 +243,18 @@ def read_index_file(index_file, base_dir=None):
             prev_pooled_prob =  pooled_prob
 
 
-    if len(grids)>1:
+    if len(grids) > 1:
         if 'pooled_prob' in grids[-1]:
             grids = get_sorted_grid(grids)
+
     return grids
 
 ##
 
-@app.route('/<int:page_id>')
-def grid(page_id):
+@app.route('/<int:page_num>')
+def grid(page_num):
+    page_id = page_num - 1
+
     grids = read_index_file(app.config['args'].input_index, base_dir=app.config['args'].base_dir)
     # from pprint import pprint
     # pprint(grids)
@@ -273,7 +266,9 @@ def grid(page_id):
 
     grids = filter_claims(grids, remove_repairs)
 
-    claims_current = grids[page_id*page_size: (page_id+1)*page_size]
+
+    page_count = int(math.ceil(float(len(grids)) / float(page_size)))
+    claims_current = grids[page_id*page_size:(page_id+1)*page_size]
 
     #create_thumbnails
     image_paths = []
@@ -281,15 +276,23 @@ def grid(page_id):
         for img in claim['images']:
             image_paths.append(img['href'])
 
+    page_image_count = len(image_paths)
+    total_image_count = sum([len(x['images']) for x in grids])
+
     create_thumbnails(image_paths)
 
     template = env.get_template('grid.html')
     return template.render(grids=claims_current,
-                           row_height=app.config['args'].row_height)
+                           row_height=app.config['args'].row_height,
+                           page_num=page_num,
+                           page_count=page_count,
+                           first_claim_id=page_id*page_size,
+                           page_image_count=page_image_count,
+                           total_image_count=total_image_count)
 
 @app.route('/')
 def home():
-    return redirect(url_for('grid', page_id=0))
+    return redirect(url_for('grid', page_num=1))
 
 
 if __name__ == '__main__':
