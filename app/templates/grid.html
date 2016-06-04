@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Image Grild</title>
+    <title>Image Grid</title>
     <link rel="stylesheet" href="static/styles.css">
     <link href="https://cdn.rawgit.com/noelboss/featherlight/1.4.1/release/featherlight.min.css" type="text/css">
 </head>
@@ -15,14 +15,22 @@
 </nav>
 <div class="container-fluid">
     {% for grid in grids %}
-    <h4>{{first_claim_id + loop.index}} : {{ grid.claim_id }}, {{ grid.claim_info_text }}</h4>
+    <h4>{{first_grid_id + loop.index}} : {{ grid.grid_id }} {{ grid.info_text }}</h4>
     <div class="row imgrid-row">
         {% for image in grid.images %}
         <div class="col-xs-6 col-sm-4 col-md-3 col-lg-2 thumb">
             <a href="{{ image.href }}" data-featherlite="image" class="thumbnail">
                 <figure>
                     <img alt="{{ image.text }}" src="{{ image.href_thumb }}">
-                    <figcaption class="figure-caption"> Part: {{ image.part_score}} <br> RR: {{ image.rr_score}}</figcaption>
+                    <figcaption class="figure-caption">
+                        {{ image.fname }}
+                        {% if 'part_score' in image %}
+                        <br>
+                        Part: {{ '%.3f' % image.part_score }}
+                        <br>
+                        RR: {{ '%.3f' % image.rr_score }}
+                        {% endif %}
+                    </figcaption>
                 </figure>
             </a>
         </div>

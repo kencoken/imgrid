@@ -45,16 +45,20 @@ def get_args(parser):
         default=8500
     )
     parser.add_argument(
-        '--split_by_subdir',
-        help='Split rows by subdir',
-        type=bool,
-        default=False
+        '--split_mode',
+        help="Split into groups: ['none', 'subdir', 'claim_info_header']"
     )
     parser.add_argument(
         '--use_probs',
         help='Use and display part and rr probabilities',
         type=bool,
         default=False
+    )
+    parser.add_argument(
+        '--space_delim_tokens',
+        help='Split N tokens from space delimited input file (if unspecified, by default will split by commas)',
+        type=int,
+        default=0
     )
     return parser.parse_args()
 
@@ -85,11 +89,11 @@ def get_sorted_images(images):
     return new_images
 
 def get_sorted_grid(grid):
-    claim_scores = []
+    grid_scores = []
     for item in grid:
-        claim_scores.append(item['pooled_prob'])
+        grid_scores.append(item['pooled_prob'])
 
-    order = np.argsort(np.array(claim_scores, dtype=np.float))[::-1]
+    order = np.argsort(np.array(grid_scores, dtype=np.float))[::-1]
     new_grid = [grid[i] for i in order]
 
     return new_grid
@@ -129,55 +133,70 @@ def read_index_file(index_file, base_dir=None):
     grids = []
     images = []
 
-    last_subdir = None
-    prev_meta_label = None
-    prev_layman_label = None
-    prev_pooled_prob = None
+    cache=dict(
+        grid_id=None,
+        last_subdir=None,
+        meta_label=None,
+        layman_label=None,
+        pooled_prob=None
+    )
 
     with open(index_file) as f:
         for line in f:
 
             paths = []
             line = line.rstrip()
-            parts = [x.rstrip() for x in line.split(',')]
-
-            if 'CLAIM_INFO' in line:
-                meta_label = parts[2]
-                layman_label =  parts[3]
-                pooled_prob =  parts[4]
-                if prev_meta_label is None:
-                    prev_meta_label = meta_label
-                    prev_layman_label = layman_label
-                    prev_pooled_prob =  pooled_prob
-                continue
+            if app.config['args'].space_delim_tokens < 1:
+                parts = [x for x in line.split(',')]
+            else:
+                token_count = app.config['args'].space_delim_tokens
+                all_parts = [x for x in line.split(' ')]
+                parts = [' '.join(all_parts[:-token_count])]
+                parts.extend(all_parts[-token_count:])
 
             text = None
 
-            if not base_dir:
-                abs_path = parts[0]
-            else:
-                abs_path = os.path.join(base_dir, parts[0])
+            if 'CLAIM_INFO' in line:
+                # header line
+                if app.config['args'].split_mode == 'claim_info_header':
+                    paths.append('sep')
 
-            if os.path.isdir(abs_path):
-                for fname in os.listdir(abs_path):
-                    if os.path.splitext(fname)[1].lower() in ['.jpg', '.jpeg', '.png']:
-                        paths.append(os.path.join(parts[0], fname))
-                paths.append('sep')
+                cache['meta_label'] = parts[2]
+                cache['layman_label'] =  parts[3]
+                cache['pooled_prob'] =  parts[4]
+
             else:
-                if not app.config['args'].split_by_subdir:
-                    paths.append(parts[0])
+                # regular line
+                if not base_dir:
+                    abs_path = parts[0]
                 else:
-                    this_subdir = os.path.split(parts[0])[0]
-                    if this_subdir != last_subdir:
-                        if last_subdir is not None:
-                            paths.append('sep')
-                        last_subdir = this_subdir
-                    paths.append(parts[0])
+                    abs_path = os.path.join(base_dir, parts[0])
 
-                if app.config['args'].use_probs:
-                    part_score = parts[1]
-                    rr_score = parts[2]
+                if os.path.isdir(abs_path):
+                    # line is directory
+                    for fname in os.listdir(abs_path):
+                        if os.path.splitext(fname)[1].lower() in ['.jpg', '.jpeg', '.png']:
+                            paths.append(os.path.join(parts[0], fname))
+                    paths.append('sep')
+                else:
+                    # line is file path
+                    if app.config['args'].split_mode in ['none', 'claim_info_header']:
+                        paths.append(parts[0])
+                    elif app.config['args'].split_mode == 'subdir':
+                        this_subdir = os.path.split(parts[0])[0]
+                        if this_subdir != cache['last_subdir']:
+                            if cache['last_subdir'] is not None:
+                                paths.append('sep')
+                            cache['last_subdir'] = this_subdir
+                        paths.append(parts[0])
+                    else:
+                        raise RuntimeError
 
+                    if app.config['args'].use_probs:
+                        part_score = float(parts[1])
+                        rr_score = float(parts[2])
+
+            # iter over paths (could be multiple if line was directory)
             for path in paths:
                 if path != 'sep':
                     if path[0] == os.path.sep:
@@ -189,40 +208,42 @@ def read_index_file(index_file, base_dir=None):
 
                     if text is None:
                         fparts = os.path.split(web_path)
-                        claim_id = os.path.split(fparts[0])[1]
-                        text_path = os.path.join(claim_id, fparts[1])
+                        cache['grid_id'] = os.path.split(fparts[0])[1]
+                        text_path = os.path.join(cache['grid_id'], fparts[1])
                     else:
                         text_path = text.replace('<fname>', os.path.split(web_path)[1])
 
-                    images.append(dict(
-                            href=web_path,
-                            href_thumb=impath_to_thumbpath(web_path),
-                            text=text_path
-                        ))
-
-                    if not app.config['args'].split_by_subdir:
-                        if len(images) > app.config['args'].page_size:
-                            grids.append(dict(images=images))
+                    image = dict(
+                        href=web_path,
+                        href_thumb=impath_to_thumbpath(web_path),
+                        text=text_path,
+                        fname=os.path.split(text_path)[1]
+                    )
 
                     if app.config['args'].use_probs:
-                        images[-1]['rr_score'] = rr_score
-                        images[-1]['part_score'] = part_score
+                        image.update(dict(
+                            rr_score=rr_score,
+                            part_score=part_score
+                        ))
+
+                    images.append(image)
+
+                    if not app.config['args'].split_mode == 'subdir':
+                        if len(images) > app.config['args'].page_size:
+                            grids.append(dict(images=images))
 
                 else:
                     if app.config['args'].use_probs:
                         images = get_sorted_images(images)
 
-                    grids.append(dict(images=images, claim_id=claim_id))
-                    if meta_label is not None:
-                        text_string = 'Metadata: {0}'.format(prev_meta_label)
-                        text_string += ', Layman: {0}'.format(prev_layman_label)
-                        text_string += ', Claim Pooled Prob: {0}'.format(prev_pooled_prob)
-                        grids[-1]['pooled_prob'] = prev_pooled_prob
-                        grids[-1]['meta_label'] = prev_meta_label
-                        grids[-1]['claim_info_text'] = text_string
-                        prev_meta_label = meta_label
-                        prev_layman_label = layman_label
-                        prev_pooled_prob =  pooled_prob
+                    grids.append(dict(images=images, grid_id=cache['grid_id']))
+                    if cache['meta_label'] is not None:
+                        text_string = 'Metadata: {0}'.format(cache['meta_label'])
+                        text_string += ', Layman: {0}'.format(cache['layman_label'])
+                        text_string += ', Claim Pooled Prob: {0}'.format(cache['pooled_prob'])
+                        grids[-1]['pooled_prob'] = cache['pooled_prob']
+                        grids[-1]['meta_label'] = cache['meta_label']
+                        grids[-1]['info_text'] = text_string
 
                     images = []
 
@@ -230,18 +251,14 @@ def read_index_file(index_file, base_dir=None):
         if app.config['args'].use_probs:
             images = get_sorted_images(images)
 
-        grids.append(dict(images=images, claim_id=claim_id))
-        if meta_label is not None and app.config['args'].split_by_subdir:
-            text_string = 'Metadata: {0}'.format(prev_meta_label)
-            text_string += ', Layman: {0}'.format(prev_layman_label)
-            text_string += ', Claim Pooled Prob: {0}'.format(prev_pooled_prob)
-            grids[-1]['pooled_prob'] = prev_pooled_prob
-            grids[-1]['meta_label'] = prev_meta_label
-            grids[-1]['claim_info_text'] = text_string
-            prev_meta_label = meta_label
-            prev_layman_label = layman_label
-            prev_pooled_prob =  pooled_prob
-
+        grids.append(dict(images=images, grid_id=cache['grid_id']))
+        if cache['meta_label'] is not None and app.config['args'].split_mode != 'none':
+            text_string = 'Metadata: {0}'.format(cache['meta_label'])
+            text_string += ', Layman: {0}'.format(cache['layman_label'])
+            text_string += ', Claim Pooled Prob: {0}'.format(cache['pooled_prob'])
+            grids[-1]['pooled_prob'] = cache['pooled_prob']
+            grids[-1]['meta_label'] = cache['meta_label']
+            grids[-1]['info_text'] = text_string
 
     if len(grids) > 1:
         if 'pooled_prob' in grids[-1]:
@@ -258,13 +275,13 @@ def grid(page_num):
     grids = read_index_file(app.config['args'].input_index, base_dir=app.config['args'].base_dir)
     # from pprint import pprint
     # pprint(grids)
-    if app.config['args'].split_by_subdir:
+    if app.config['args'].split_mode != 'none':
         # assume ~20 images per claim
         page_size = int(app.config['args'].page_size/20.0)
     else:
         page_size = app.config['args'].page_size
 
-    grids = filter_claims(grids, remove_repairs)
+    #grids = filter_claims(grids, remove_repairs)
 
 
     page_count = int(math.ceil(float(len(grids)) / float(page_size)))
@@ -286,7 +303,7 @@ def grid(page_num):
                            row_height=app.config['args'].row_height,
                            page_num=page_num,
                            page_count=page_count,
-                           first_claim_id=page_id*page_size,
+                           first_grid_id=page_id*page_size,
                            page_image_count=page_image_count,
                            total_image_count=total_image_count)
 
