@@ -27,8 +27,14 @@ def get_args(parser):
         default=None
     )
     parser.add_argument(
+        '--images_per_row',
+        help='The preferred number of images / row',
+        type=int,
+        default=6  # should be one of 6, 4, 3
+    )
+    parser.add_argument(
         '--row_height',
-        help='The preferred height of rows in pixels',
+        help='The preferred height in pixels of thumbnail images',
         type=int,
         default=300
     )
@@ -36,7 +42,7 @@ def get_args(parser):
         '--page_size',
         help='number of images per page',
         type=int,
-        default=200
+        default=80
     )
     parser.add_argument(
         '--srv_port',
@@ -46,7 +52,8 @@ def get_args(parser):
     )
     parser.add_argument(
         '--split_mode',
-        help="Split into groups: ['none', 'subdir', 'claim_info_header']"
+        help="Split into groups: ['none', 'subdir', 'claim_info_header']",
+        default='none'
     )
     parser.add_argument(
         '--use_probs',
@@ -190,7 +197,7 @@ def read_index_file(index_file, base_dir=None):
                             cache['last_subdir'] = this_subdir
                         paths.append(parts[0])
                     else:
-                        raise RuntimeError
+                        raise RuntimeError('Unknown split mode: %s' % app.config['args'].split_mode)
 
                     if app.config['args'].use_probs:
                         part_score = float(parts[1])
@@ -227,10 +234,6 @@ def read_index_file(index_file, base_dir=None):
                         ))
 
                     images.append(image)
-
-                    if not app.config['args'].split_mode == 'subdir':
-                        if len(images) > app.config['args'].page_size:
-                            grids.append(dict(images=images))
 
                 else:
                     if app.config['args'].use_probs:
@@ -275,17 +278,21 @@ def grid(page_num):
     grids = read_index_file(app.config['args'].input_index, base_dir=app.config['args'].base_dir)
     # from pprint import pprint
     # pprint(grids)
-    if app.config['args'].split_mode != 'none':
-        # assume ~20 images per claim
-        page_size = int(app.config['args'].page_size/20.0)
-    else:
-        page_size = app.config['args'].page_size
 
     #grids = filter_claims(grids, remove_repairs)
 
-
-    page_count = int(math.ceil(float(len(grids)) / float(page_size)))
-    claims_current = grids[page_id*page_size:(page_id+1)*page_size]
+    if app.config['args'].split_mode != 'none':
+        # assume ~20 images per claim
+        page_size = int(app.config['args'].page_size/20.0)
+        page_count = int(math.ceil(float(len(grids)) / float(page_size)))
+        claims_current = grids[page_id*page_size:(page_id+1)*page_size]
+    else:
+        page_size = app.config['args'].page_size
+        assert len(grids) == 1
+        images = grids[0]['images']
+        page_count = int(math.ceil(float(len(images)) / float(page_size)))
+        images_current = images[page_id*page_size:(page_id+1)*page_size]
+        claims_current = [dict(images=images_current, grid_id='all images')]
 
     #create_thumbnails
     image_paths = []
@@ -300,6 +307,7 @@ def grid(page_num):
 
     template = env.get_template('grid.html')
     return template.render(grids=claims_current,
+                           images_per_row=app.config['args'].images_per_row,
                            row_height=app.config['args'].row_height,
                            page_num=page_num,
                            page_count=page_count,
