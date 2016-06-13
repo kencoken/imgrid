@@ -36,6 +36,16 @@
                         <br>
                         RR: {{ '%.3f' % image.rr_score }}
                         {% endif %}
+                        {% if labels %}
+                        <br>
+                        <div class="btn-group" data-toggle="buttons">
+                            {% for label in labels %}
+                            <label class="btn btn-secondary-outline btn-sm label-toggle" data-fname="{{ image.href }}" data-label="{{ label }}">
+                                <input type="checkbox" autocomplete="off">{{ label }}
+                            </label>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
                     </figcaption>
                 </figure>
             </a>
@@ -63,6 +73,51 @@
 
 <script src="https://code.jquery.com/jquery-2.2.4.min.js" integrity="sha256-BbhdlvQf/xTY9gja0Dq3HiwQF8LaCRTXxZKRutelT44=" crossorigin="anonymous"></script>
 <script src="https://cdn.rawgit.com/noelboss/featherlight/1.4.1/release/featherlight.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.2/js/bootstrap.min.js" integrity="sha384-vZ2WRJMwsjRMW/8U7i6PWi6AlO1L79snBrmgiDpgIWJ82z8eA5lenwvxbMV1PAh7" crossorigin="anonymous"></script>
+
+{% if labels %}
+<script>
+ $(document).ready(function() {
+   $('.label-toggle').change(function() {
+     var $label = $(this);
+     var fname = $label.data('fname');
+     var label = $label.data('label');
+     
+     var isActiveBeforeToggle = $label.hasClass('active');
+     if (isActiveBeforeToggle) {
+       // entering unchecked state
+       console.log('unchecked: ' + fname + ', ' + label);
+     } else {
+       // entering checked state
+       console.log('checked: ' + fname + ', ' + label);
+     }
+
+     $.ajax ({
+       url: '/set_label',
+       type: 'POST',
+       data: JSON.stringify({
+         path: fname,
+         label: label,
+         add: !isActiveBeforeToggle
+       }),
+       contentType: "application/json;charset=utf-8"
+     }).success(function() {
+       console.log('Successfully updated label ' + label + ' for ' + fname);
+     }).fail(function(x) {
+       alert('Error occurred when setting label');
+       console.log(x);
+       // reset
+       if (isActiveBeforeToggle) {
+         $label.addClass('active');
+       } else {
+         $label.removeClass('active');
+       }
+     });
+
+   });
+ });
+</script>
+{% endif %}
 
 </body>
 </html>

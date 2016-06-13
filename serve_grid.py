@@ -1,5 +1,5 @@
 import sys
-from flask import Flask,  redirect, url_for
+from flask import Flask, redirect, url_for, request
 from jinja2 import Environment, PackageLoader
 import argparse
 import os
@@ -68,6 +68,11 @@ def get_args(parser):
         help='Split N tokens from space delimited input file (if unspecified, by default will split by commas)',
         type=int,
         default=0
+    )
+    parser.add_argument(
+        '--add_labels',
+        help='Add the following labels per image',
+        default=None
     )
     return parser.parse_args()
 
@@ -390,6 +395,10 @@ def grid(page_num):
 
     print 'Done creating thumbnails'
 
+    labels = app.config['args'].add_labels
+    if labels is not None:
+        labels = labels.split(',')
+
     template = env.get_template('grid.html')
     return template.render(grids=claims_current,
                            images_per_row=app.config['args'].images_per_row,
@@ -398,11 +407,30 @@ def grid(page_num):
                            page_count=page_count,
                            first_grid_id=page_id*page_size,
                            page_image_count=page_image_count,
-                           total_image_count=total_image_count)
+                           total_image_count=total_image_count,
+                           labels=labels)
 
 @app.route('/')
 def home():
     return redirect(url_for('grid', page_num=1))
+
+@app.route('/set_label', methods=['POST'])
+def set_label():
+
+    req_data = request.get_json()
+
+    if set_label.fptr is None:
+        set_label.fptr = open('labels.txt', 'a')
+
+    label_line = '%s,%s,%d' % (req_data['path'], req_data['label'], req_data['add'])
+    print label_line
+    set_label.fptr.write('%s\n' % label_line)
+    set_label.fptr.flush()
+    os.fsync(set_label.fptr)
+
+    return 'OK'
+
+set_label.fptr = None
 
 
 if __name__ == '__main__':
