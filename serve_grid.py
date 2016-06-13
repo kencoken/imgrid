@@ -8,6 +8,8 @@ import socket
 from PIL import Image
 import math
 
+from collections import deque
+
 app = Flask(__name__)
 app.config.from_object(__name__)
 app.config.update(dict(
@@ -123,6 +125,47 @@ def create_thumbnails(paths):
             im.thumbnail(size, Image.ANTIALIAS)
             im.save(thumb_path)
 
+def proc_seperator(cache_id, cache_meta, images, grids, force_output=False):
+
+    forcing_output = False
+
+    if app.config['args'].split_mode == 'subdir':
+        id = cache_id.popleft()
+    elif app.config['args'].split_mode == 'claim_info_header':
+        meta = cache_meta.popleft()
+    else:
+        if force_output:
+            forcing_output = True
+            id = 'unknown'
+        else:
+            raise RuntimeError("Shouldn't be splitting if not in: %s split mode" % str(['subdir, claim_info_header']))
+
+    if app.config['args'].use_probs:
+        images = get_sorted_images(images)
+
+    if app.config['args'].split_mode == 'subdir' or forcing_output:
+        grid = dict(
+            grid_id=id,
+            images=images
+        )
+        grids.append(grid)
+
+    elif app.config['args'].split_mode == 'claim_info_header':
+        info_text = 'Metadata: {0}'.format(meta.meta_label)
+        info_text += ', Layman: {0}'.format(meta.layman_label)
+        info_text += ', Claim Pooled Prob: {0}'.format(meta.pooled_prob)
+        grid = dict(
+            grid_id=meta.id,
+            images=images,
+            pooled_prob=meta.pooled_prob,
+            meta_label=meta.meta_label,
+            info_text=info_text
+        )
+
+        grids.append(grid)
+
+    return grids
+
 def read_index_file(index_file, base_dir=None):
 
     # # create symlink to base_dir
@@ -140,18 +183,22 @@ def read_index_file(index_file, base_dir=None):
     grids = []
     images = []
 
-    cache=dict(
-        grid_id=None,
-        last_subdir=None,
-        meta_label=None,
-        layman_label=None,
-        pooled_prob=None
-    )
+    cache_meta = deque() # used for split by claim_info_header
+    cache_id = deque() # used for split by folder
+    found_paths = False
+
+    class CacheObj(object):
+        def __init__(meta_label=None, layman_label=None, pooled_prob=None):
+            self.meta_label = meta_label
+            self.layman_label = layman_label
+            self.pooled_prob = pooled_prob
 
     with open(index_file) as f:
         for line in f:
 
             paths = []
+            text = None # REPLACE THIS WITH CAPTIONS IF REQUIRED
+            
             line = line.rstrip()
             if app.config['args'].space_delim_tokens < 1:
                 parts = [x for x in line.split(',')]
@@ -161,19 +208,26 @@ def read_index_file(index_file, base_dir=None):
                 parts = [' '.join(all_parts[:-token_count])]
                 parts.extend(all_parts[-token_count:])
 
-            text = None
-
             if 'CLAIM_INFO' in line:
                 # header line
-                if app.config['args'].split_mode == 'claim_info_header':
+                if not app.config['args'].split_mode == 'claim_info_header':
+                    continue # skip if not splitting
+                
+                if app.config['args'].split_mode == 'claim_info_header' and found_paths:
+                    print 'SEP CLAIM_INFO'
                     paths.append('sep')
 
-                cache['meta_label'] = parts[2]
-                cache['layman_label'] =  parts[3]
-                cache['pooled_prob'] =  parts[4]
+                cache_meta.append(CacheObj(
+                    id=parts[1],
+                    meta_label=parts[2],
+                    layman_label=parts[3],
+                    pooled_prob=parts[4]
+                ))
 
             else:
                 # regular line
+                found_paths = True
+                
                 if not base_dir:
                     abs_path = parts[0]
                 else:
@@ -184,17 +238,22 @@ def read_index_file(index_file, base_dir=None):
                     for fname in os.listdir(abs_path):
                         if os.path.splitext(fname)[1].lower() in ['.jpg', '.jpeg', '.png']:
                             paths.append(os.path.join(parts[0], fname))
-                    paths.append('sep')
+                    if app.config['args'].split_mode == 'subdir':
+                        print 'SEP SUBDIR'
+                        paths.append('sep')
+                        cache_id.append(os.path.split(abs_path)[1])
                 else:
                     # line is file path
                     if app.config['args'].split_mode in ['none', 'claim_info_header']:
                         paths.append(parts[0])
                     elif app.config['args'].split_mode == 'subdir':
                         this_subdir = os.path.split(parts[0])[0]
-                        if this_subdir != cache['last_subdir']:
-                            if cache['last_subdir'] is not None:
-                                paths.append('sep')
-                            cache['last_subdir'] = this_subdir
+                        if len(cache_id) == 0:
+                            cache_id.append(this_subdir)
+                        elif this_subdir != cache_id[-1]:
+                            print 'SEP SUBDIR INFERRED: %s -> %s' % (cache_id[-1], this_subdir)
+                            paths.append('sep')
+                            cache_id.append(this_subdir)
                         paths.append(parts[0])
                     else:
                         raise RuntimeError('Unknown split mode: %s' % app.config['args'].split_mode)
@@ -203,9 +262,14 @@ def read_index_file(index_file, base_dir=None):
                         part_score = float(parts[1])
                         rr_score = float(parts[2])
 
-            # iter over paths (could be multiple if line was directory)
+            # iter over paths (could be multiple if line was directory, but otherwise will just contain a single entry)
             for path in paths:
-                if path != 'sep':
+                if path == 'sep':
+                    # seperator
+                    grids = proc_seperator(cache_id, cache_meta, images, grids)
+                    images = []
+                else:
+                    # regular path
                     if path[0] == os.path.sep:
                         web_path = path[1:]
                     else:
@@ -215,10 +279,10 @@ def read_index_file(index_file, base_dir=None):
 
                     if text is None:
                         fparts = os.path.split(web_path)
-                        cache['grid_id'] = os.path.split(fparts[0])[1]
-                        text_path = os.path.join(cache['grid_id'], fparts[1])
+                        grid_id = os.path.split(fparts[0])[1]
+                        text_path = os.path.join(grid_id, fparts[1])
                     else:
-                        text_path = text.replace('<fname>', os.path.split(web_path)[1])
+                        text_path = cache['text'].replace('<fname>', os.path.split(web_path)[1])
 
                     image = dict(
                         href=web_path,
@@ -235,33 +299,8 @@ def read_index_file(index_file, base_dir=None):
 
                     images.append(image)
 
-                else:
-                    if app.config['args'].use_probs:
-                        images = get_sorted_images(images)
-
-                    grids.append(dict(images=images, grid_id=cache['grid_id']))
-                    if cache['meta_label'] is not None:
-                        text_string = 'Metadata: {0}'.format(cache['meta_label'])
-                        text_string += ', Layman: {0}'.format(cache['layman_label'])
-                        text_string += ', Claim Pooled Prob: {0}'.format(cache['pooled_prob'])
-                        grids[-1]['pooled_prob'] = cache['pooled_prob']
-                        grids[-1]['meta_label'] = cache['meta_label']
-                        grids[-1]['info_text'] = text_string
-
-                    images = []
-
     if len(images) > 0:
-        if app.config['args'].use_probs:
-            images = get_sorted_images(images)
-
-        grids.append(dict(images=images, grid_id=cache['grid_id']))
-        if cache['meta_label'] is not None and app.config['args'].split_mode != 'none':
-            text_string = 'Metadata: {0}'.format(cache['meta_label'])
-            text_string += ', Layman: {0}'.format(cache['layman_label'])
-            text_string += ', Claim Pooled Prob: {0}'.format(cache['pooled_prob'])
-            grids[-1]['pooled_prob'] = cache['pooled_prob']
-            grids[-1]['meta_label'] = cache['meta_label']
-            grids[-1]['info_text'] = text_string
+        grids = proc_seperator(cache_id, cache_meta, images, grids, force_output=True)
 
     if len(grids) > 1:
         if 'pooled_prob' in grids[-1]:
@@ -282,10 +321,52 @@ def grid(page_num):
     #grids = filter_claims(grids, remove_repairs)
 
     if app.config['args'].split_mode != 'none':
-        # assume ~20 images per claim
-        page_size = int(app.config['args'].page_size/20.0)
-        page_count = int(math.ceil(float(len(grids)) / float(page_size)))
-        claims_current = grids[page_id*page_size:(page_id+1)*page_size]
+        page_size = app.config['args'].page_size
+        
+        page_start = page_id*page_size
+        page_end = (page_id+1)*page_size
+
+        grid_start_idx = -1
+        grid_start_subidx = 0
+        grid_end_idx = -1
+        grid_end_subidx = 0
+        
+        image_count = 0
+        for i in range(len(grids)):
+            new_image_count = image_count + len(grids[i]['images'])
+            if grid_start_idx == -1 and page_start < new_image_count:
+                grid_start_idx = i
+                grid_start_subidx = page_start - image_count
+            if grid_end_idx == -1 and page_end > image_count and page_end < new_image_count:
+                grid_end_idx = i
+                grid_end_subidx = page_end - image_count
+            image_count = new_image_count
+
+        page_count = image_count / page_size
+
+        print 'Extracting grid_idx: %d-%d (%d, %d) page_count: %d' % (grid_start_idx, grid_end_idx, grid_start_subidx, grid_end_subidx, page_count)
+
+        claims_current = []
+        if grid_start_idx > -1 and grid_end_idx > -1:
+
+            if grid_start_idx == grid_end_idx:
+                claims_current.append(dict(
+                    images=grids[grid_start_idx]['images'][grid_start_subidx:grid_end_subidx],
+                    grid_id=grids[grid_start_idx]['grid_id']
+                ))
+            else:
+                claims_current.append(dict(
+                    images=grids[grid_start_idx]['images'][grid_start_subidx:],
+                    grid_id=grids[grid_start_idx]['grid_id']
+                ))
+            
+                for i in range(grid_start_idx+1, grid_end_idx):
+                    claims_current.append(grids[i])
+
+                claims_current.append(dict(
+                    images=grids[grid_end_idx]['images'][:grid_end_subidx],
+                    grid_id=grids[grid_end_idx]['grid_id']
+                ))
     else:
         page_size = app.config['args'].page_size
         assert len(grids) == 1
@@ -293,6 +374,12 @@ def grid(page_num):
         page_count = int(math.ceil(float(len(images)) / float(page_size)))
         images_current = images[page_id*page_size:(page_id+1)*page_size]
         claims_current = [dict(images=images_current, grid_id='all images')]
+
+    print 'gonna create thumbnails'
+    print len(claims_current)
+    im_counts = [len(x['images']) for x in claims_current]
+    print im_counts
+    print sum(im_counts)
 
     #create_thumbnails
     image_paths = []
@@ -304,6 +391,8 @@ def grid(page_num):
     total_image_count = sum([len(x['images']) for x in grids])
 
     create_thumbnails(image_paths)
+
+    print 'done creating thumbnails'
 
     template = env.get_template('grid.html')
     return template.render(grids=claims_current,
