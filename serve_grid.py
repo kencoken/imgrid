@@ -214,7 +214,6 @@ def read_index_file(index_file, base_dir=None):
                     continue # skip if not splitting
                 
                 if app.config['args'].split_mode == 'claim_info_header' and found_paths:
-                    print 'SEP CLAIM_INFO'
                     paths.append('sep')
 
                 cache_meta.append(CacheObj(
@@ -239,7 +238,6 @@ def read_index_file(index_file, base_dir=None):
                         if os.path.splitext(fname)[1].lower() in ['.jpg', '.jpeg', '.png']:
                             paths.append(os.path.join(parts[0], fname))
                     if app.config['args'].split_mode == 'subdir':
-                        print 'SEP SUBDIR'
                         paths.append('sep')
                         cache_id.append(os.path.split(abs_path)[1])
                 else:
@@ -251,7 +249,6 @@ def read_index_file(index_file, base_dir=None):
                         if len(cache_id) == 0:
                             cache_id.append(this_subdir)
                         elif this_subdir != cache_id[-1]:
-                            print 'SEP SUBDIR INFERRED: %s -> %s' % (cache_id[-1], this_subdir)
                             paths.append('sep')
                             cache_id.append(this_subdir)
                         paths.append(parts[0])
@@ -375,11 +372,10 @@ def grid(page_num):
         images_current = images[page_id*page_size:(page_id+1)*page_size]
         claims_current = [dict(images=images_current, grid_id='all images')]
 
-    print 'gonna create thumbnails'
-    print len(claims_current)
+    print 'Creating thumbnails...'
     im_counts = [len(x['images']) for x in claims_current]
     print im_counts
-    print sum(im_counts)
+    print 'Claims: %d, Images: %d' % (len(claims_current), sum(im_counts))
 
     #create_thumbnails
     image_paths = []
@@ -392,7 +388,7 @@ def grid(page_num):
 
     create_thumbnails(image_paths)
 
-    print 'done creating thumbnails'
+    print 'Done creating thumbnails'
 
     template = env.get_template('grid.html')
     return template.render(grids=claims_current,
