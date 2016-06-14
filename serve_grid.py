@@ -398,8 +398,10 @@ def grid(page_num):
     print 'Done creating thumbnails'
 
     labels = app.config['args'].add_labels
+    current_labels = None
     if labels is not None:
         labels = labels.split(',')
+        current_labels = get_labels(claims_current)
 
     template = env.get_template('grid.html')
     return template.render(grids=claims_current,
@@ -410,7 +412,8 @@ def grid(page_num):
                            first_grid_id=page_id*page_size,
                            page_image_count=page_image_count,
                            total_image_count=total_image_count,
-                           labels=labels)
+                           labels=labels,
+                           current_labels=current_labels)
 
 @app.route('/')
 def home():
@@ -421,22 +424,51 @@ def set_label():
 
     req_data = request.get_json()
 
+    if set_label.labels is None:
+        if os.path.exists(set_label.LABEL_FILE):
+            with open(set_label.LABEL_FILE) as f:
+                set_label.labels = json.load(f)
+        else:
+            set_label.labels = dict()
+
     if req_data['add']:
         if req_data['path'] not in set_label.labels:
             set_label.labels[req_data['path']] = []
-        set_label.labels[req_data['path']].append(req_data['label'])
+        if req_data['label'] not in set_label.labels[req_data['path']]:
+            set_label.labels[req_data['path']].append(str(req_data['label']))
     else:
         if req_data['path'] in set_label.labels and req_data['label'] in set_label.labels[req_data['path']]:
             set_label.labels[req_data['path']].remove(req_data['label'])
             if len(set_label.labels[req_data['path']]) == 0:
                 del set_label.labels[req_data['path']]
 
-    with open('labels.json', 'w') as f:
+    with open(set_label.LABEL_FILE, 'w') as f:
         json.dump(set_label.labels, f)
 
     return 'OK'
 
-set_label.labels = dict()
+set_label.LABEL_FILE = 'labels.json'
+set_label.labels = None
+
+def get_labels(grids):
+
+    if set_label.labels is None:
+        if os.path.exists(set_label.LABEL_FILE):
+            with open(set_label.LABEL_FILE) as f:
+                set_label.labels = json.load(f)
+        else:
+            return dict()
+    
+    current_labels = dict()
+    for grid in grids:
+        for image in grid['images']:
+            if image['href'] in set_label.labels:
+                assert(image['href'] not in current_labels)
+                current_labels[image['href']] = set_label.labels[image['href']]
+
+    print current_labels
+
+    return current_labels
 
 
 if __name__ == '__main__':

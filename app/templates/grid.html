@@ -40,9 +40,15 @@
                         <br>
                         <div class="btn-group" data-toggle="buttons">
                             {% for label in labels %}
+                            {% if image.href in current_labels and label in current_labels[image.href] %}
+                            <label class="btn btn-secondary-outline btn-sm label-toggle active" data-fname="{{ image.href }}" data-label="{{ label }}">
+                                <input type="checkbox" autocomplete="off">{{ label }}
+                            </label>
+                            {% else %}
                             <label class="btn btn-secondary-outline btn-sm label-toggle" data-fname="{{ image.href }}" data-label="{{ label }}">
                                 <input type="checkbox" autocomplete="off">{{ label }}
                             </label>
+                            {% endif %}
                             {% endfor %}
                         </div>
                         {% endif %}
