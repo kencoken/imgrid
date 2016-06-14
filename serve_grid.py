@@ -8,6 +8,8 @@ import socket
 from PIL import Image
 import math
 
+import json
+
 from collections import deque
 
 app = Flask(__name__)
@@ -419,18 +421,22 @@ def set_label():
 
     req_data = request.get_json()
 
-    if set_label.fptr is None:
-        set_label.fptr = open('labels.txt', 'a')
+    if req_data['add']:
+        if req_data['path'] not in set_label.labels:
+            set_label.labels[req_data['path']] = []
+        set_label.labels[req_data['path']].append(req_data['label'])
+    else:
+        if req_data['path'] in set_label.labels and req_data['label'] in set_label.labels[req_data['path']]:
+            set_label.labels[req_data['path']].remove(req_data['label'])
+            if len(set_label.labels[req_data['path']]) == 0:
+                del set_label.labels[req_data['path']]
 
-    label_line = '%s,%s,%d' % (req_data['path'], req_data['label'], req_data['add'])
-    print label_line
-    set_label.fptr.write('%s\n' % label_line)
-    set_label.fptr.flush()
-    os.fsync(set_label.fptr)
+    with open('labels.json', 'w') as f:
+        json.dump(set_label.labels, f)
 
     return 'OK'
 
-set_label.fptr = None
+set_label.labels = dict()
 
 
 if __name__ == '__main__':
